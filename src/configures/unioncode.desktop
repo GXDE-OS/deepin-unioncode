@@ -1,0 +1,15 @@
+[Desktop Entry]
+Actions=new-empty-window;
+Categories=Utility;TextEditor;Development;IDE;
+Comment=Code Editing. Redefined.
+Exec=/usr/bin/deepin-unioncode
+GenericName=Text Editor
+Icon=/usr/share/deepin-unioncode/configures/icons/ide.svg
+Keywords=deepin-unioncode;
+MimeType=text/plain;application/x-code-workspace;
+Name=Deepin Union Code
+Path=/usr/bin
+StartupNotify=false
+StartupWMClass=Code
+Type=Application
+X-Deepin-Vendor=user-custom

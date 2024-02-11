@@ -1,0 +1,10 @@
+<RCC>
+    <qresource prefix="/icons/deepin/builtin">
+        <file>texts/binarytools_add_16px.svg</file>
+        <file>texts/binarytools_combine_16px.svg</file>
+        <file>texts/binarytools_delete_16px.svg</file>
+        <file>texts/binarytools_rename_16px.svg</file>
+        <file>texts/binarytools_reset_16px.svg</file>
+        <file>texts/binarytools_reduce_16px.svg</file>
+    </qresource>
+</RCC>
