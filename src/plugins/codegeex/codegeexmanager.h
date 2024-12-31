@@ -13,6 +13,7 @@
 #include <QTimer>
 #include <QMutex>
 #include <QIODevice>
+#include <QJsonObject>
 
 struct RecordData
 {
@@ -90,12 +91,13 @@ public:
     bool isReferenceCodebase() const;
     void setReferenceFiles(const QStringList &files);
 
-    void independentAsking(const QString &prompt, QIODevice *pipe);
+    void independentAsking(const QString &prompt, const QMultiMap<QString, QString> &history, QIODevice *pipe);
     // Rag
     QString condaRootPath() const;
     void showIndexingWidget();
     Q_INVOKABLE void installConda();
     Q_INVOKABLE void generateRag(const QString &projectPath);
+    QJsonObject getCurrentChunks() const { return currentChunks; }
     /*
      JsonObject:
         Query: str
@@ -103,6 +105,9 @@ public:
         Instructions: obj{name:str, description:str, content:str}
      */
     QJsonObject query(const QString &projectPath, const QString &query, int topItems);
+
+    QString promptPreProcessing(const QString &originText);
+    QString getChunks(const QString &queryText);
 
 Q_SIGNALS:
     void loginSuccessed();
@@ -158,6 +163,7 @@ private:
     QTimer installCondaTimer;
     QMutex mutex;
     QStringList indexingProject {};
+    QJsonObject currentChunks;
 };
 
 #endif   // CODEGEEXMANAGER_H

@@ -17,6 +17,7 @@
 #include "modules/contextmodule.h"
 #include "modules/notificationmodule.h"
 #include "modules/dependencemodule.h"
+#include "modules/sessionmanagermodule.h"
 #include "locator/locatormanager.h"
 #include "find/placeholdermanager.h"
 
@@ -198,6 +199,7 @@ Controller::Controller(QObject *parent)
     registerModule("contextModule", new ContextModule());
     registerModule("notifyModule", new NotificationModule());
     registerModule("dependenceModule", new DependenceModule());
+    registerModule("sessionManagerModule", new SessionManagerModule());
     initModules();
 }
 
@@ -945,7 +947,7 @@ void Controller::initNavigationBar()
     d->navigationToolBar->hide();
 
     vLayout->addWidget(d->navigationBar);
-    vLayout->setContentsMargins(0, 0, 2, 0);
+    vLayout->setContentsMargins(0, 0, 1, 0);
 }
 
 void Controller::initContextWidget()

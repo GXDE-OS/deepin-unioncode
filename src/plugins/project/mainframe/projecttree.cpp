@@ -17,6 +17,7 @@
 #include <DPushButton>
 #include <DLineEdit>
 #include <DDialog>
+#include <DDesktopServices>
 
 #include <QDebug>
 #include <QHeaderView>
@@ -26,8 +27,8 @@
 #include <QApplication>
 #include <QUrl>
 #include <QClipboard>
-#include <QDesktopServices>
-
+#include <QScrollBar>
+DCORE_USE_NAMESPACE
 DWIDGET_USE_NAMESPACE
 using namespace dpfservice;
 
@@ -58,6 +59,7 @@ ProjectTree::ProjectTree(QWidget *parent)
 {
     setLineWidth(0);
     setContentsMargins(0, 0, 0, 0);
+    setFrameShape(QFrame::NoFrame);
     DStyle::setFrameRadius(this, 0);
     setIconSize(QSize(16, 16));
 
@@ -82,10 +84,20 @@ ProjectTree::ProjectTree(QWidget *parent)
                      this, &ProjectTree::doDoubleClicked);
 
     QObject::connect(this, &ProjectTree::expanded,
-                     this, [=](const QModelIndex &index) { SendEvents::projectNodeExpanded(index); });
+                     this, [=](const QModelIndex &index) {
+                         auto item = d->itemModel->itemFromIndex(index);
+                         if (item)
+                             item->setData(true, Project::ItemExpandedRole);
+                         SendEvents::projectNodeExpanded(index);
+                     });
 
     QObject::connect(this, &ProjectTree::collapsed,
-                     this, [=](const QModelIndex &index) { SendEvents::projectNodeCollapsed(index); });
+                     this, [=](const QModelIndex &index) {
+                         auto item = d->itemModel->itemFromIndex(index);
+                         if (item)
+                             item->setData(false, Project::ItemExpandedRole);
+                         SendEvents::projectNodeCollapsed(index);
+                     });
 
     d->sectionModel = new ProjectSelectionModel(d->itemModel);
     setSelectionModel(d->sectionModel);
@@ -101,6 +113,13 @@ ProjectTree::~ProjectTree()
 {
     if (d) {
         delete d;
+    }
+}
+
+void ProjectTree::closeAllProjects()
+{
+    while (auto item = d->itemModel->item(0)) {
+        removeRootItem(item);
     }
 }
 
@@ -120,18 +139,14 @@ void ProjectTree::activeProjectInfo(const ProjectInfo &info)
     }
 }
 
-void ProjectTree::activeProjectInfo(const QString &kitName,
-                                    const QString &language,
-                                    const QString &workspace)
+void ProjectTree::activeProjectInfo(const QString &workspace)
 {
     int rowCount = d->itemModel->rowCount();
     for (int currRow = 0; currRow < rowCount; currRow++) {
         auto currItem = d->itemModel->item(currRow, 0);
         if (currItem) {
             auto currInfo = ProjectInfo::get(ProjectGenerator::root(currItem));
-            if (currInfo.language() == language
-                && currInfo.workspaceFolder() == workspace
-                && currInfo.kitName() == kitName) {
+            if (currInfo.workspaceFolder() == workspace) {
                 doActiveProject(currItem);
             }
         }
@@ -152,8 +167,8 @@ void ProjectTree::appendRootItem(QStandardItem *root)
     if (model)
         model->appendRow(root);
 
-    if (root->data(Parsing_State_Role).value<ParsingState>() != ParsingState::Done)   //avoid appent root item after complete parse
-        root->setData(ParsingState::Wait, Parsing_State_Role);
+    if (root->data(Project::ParsingStateRole).value<Project::ParsingState>() != Project::Done)   //avoid appent root item after complete parse
+        root->setData(Project::Wait, Project::ParsingStateRole);
 
     // 发送工程节点已创建信号
     SendEvents::projectCreated(info);
@@ -244,9 +259,12 @@ void ProjectTree::doItemMenuRequest(QStandardItem *item, QContextMenuEvent *even
     menu->addSeparator();
     QAction *showContainFolder = new QAction(tr("Show Containing Folder"), this);
     connect(showContainFolder, &QAction::triggered, [=]() {
-        QString filePath = item->toolTip();
+        QString filePath = item->data(Project::ProjectItemRole::FilePathRole).toString();
         QFileInfo info(filePath);
-        QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+        if (info.isFile())
+            DDesktopServices::showFileItem(filePath);
+        else
+            DDesktopServices::showFolder(filePath);
     });
     menu->addAction(showContainFolder);
 
@@ -289,6 +307,24 @@ void ProjectTree::expandedProjectAll(const QStandardItem *root)
             QStandardItem *childitem = root->child(i);
             expandedProjectAll(childitem);
         }
+    }
+}
+
+void ProjectTree::restoreExpandState(QStandardItem *item)
+{
+    QModelIndex index = d->itemModel->indexFromItem(item);
+    if (!index.isValid())
+        return;
+
+    bool expanded = item->data(Project::ItemExpandedRole).toBool();
+    if (!expanded) {
+        collapse(index);
+        return;
+    }
+
+    expand(index);
+    for (int i = 0; i < item->rowCount(); ++i) {
+        restoreExpandState(item->child(i));
     }
 }
 
@@ -665,6 +701,7 @@ void ProjectTree::actionNewDirectory(const QStandardItem *item)
 
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("New Dirctory"));
+    dialog->setFocusProxy(inputEdit);
 
     dialog->addContent(inputEdit);
     dialog->addButton(tr("Ok"), true, DDialog::ButtonRecommend);
@@ -693,6 +730,7 @@ void ProjectTree::actionNewDocument(const QStandardItem *item)
 
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("New Document"));
+    dialog->setFocusProxy(inputEdit);
 
     dialog->addContent(inputEdit);
     dialog->addButton(tr("Ok"), true, DDialog::ButtonRecommend);

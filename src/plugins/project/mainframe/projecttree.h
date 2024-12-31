@@ -21,14 +21,15 @@ class ProjectTree : public DTreeView
 public:
     explicit ProjectTree(QWidget *parent = nullptr);
     ~ProjectTree() override;
+    void closeAllProjects();
     void activeProjectInfo(const dpfservice::ProjectInfo &info);
-    void activeProjectInfo(const QString &kitName, const QString &language,
-                           const QString &workspace);
+    void activeProjectInfo(const QString &workspace);
     void appendRootItem(QStandardItem *root);
     void removeRootItem(QStandardItem *root);
     void takeRootItem(QStandardItem *root);
     void expandedProjectDepth(const QStandardItem *root, int depth);
     void expandedProjectAll(const QStandardItem *root);
+    void restoreExpandState(QStandardItem *item);
     void selectProjectFile(const QString &file);
     void setAutoFocusState(bool state);
 	bool getAutoFocusState() const;

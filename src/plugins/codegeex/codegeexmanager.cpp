@@ -9,13 +9,13 @@
 #include "services/window/windowelement.h"
 #include "services/terminal/terminalservice.h"
 #include "services/project/projectservice.h"
+#include "services/option/optionmanager.h"
 
 #include <DSpinner>
 
 #include <QDebug>
 #include <QProcess>
 #include <QFile>
-#include <QJsonObject>
 #include <QJsonDocument>
 #include <QMultiMap>
 #include <QUuid>
@@ -84,33 +84,38 @@ bool CodeGeeXManager::condaHasInstalled()
 
 void CodeGeeXManager::saveConfig(const QString &sessionId, const QString &userId)
 {
-    QJsonObject config;
-    config["sessionId"] = sessionId;
-    config["userId"] = userId;
+    QVariantMap map { { "sessionId", sessionId },
+                      { "userId", userId } };
 
-    QJsonDocument document(config);
-
-    QFile file(configFilePath());
-    file.open(QIODevice::WriteOnly);
-    file.write(document.toJson());
-    file.close();
+    OptionManager::getInstance()->setValue("CodeGeeX", "Id", map);
 }
 
+Q_DECL_DEPRECATED_X("-------------存在兼容代码需要删除")
 void CodeGeeXManager::loadConfig()
 {
     QFile file(configFilePath());
-    if (!file.exists())
-        return;
+    if (!file.exists()) {
+        const auto map = OptionManager::getInstance()->getValue("CodeGeeX", "Id").toMap();
+        if (map.isEmpty())
+            return;
 
-    file.open(QIODevice::ReadOnly);
-    QString data = QString::fromUtf8(file.readAll());
-    file.close();
+        sessionId = map.value("sessionId").toString();
+        userId = map.value("userId").toString();
+    } else {
+        // ------------------Deprecated start--------------------
+        file.open(QIODevice::ReadOnly);
+        QString data = QString::fromUtf8(file.readAll());
+        file.close();
+        file.remove();
 
-    QJsonDocument document = QJsonDocument::fromJson(data.toUtf8());
-    QJsonObject config = document.object();
-    if (!config.empty()) {
-        sessionId = config["sessionId"].toString();
-        userId = config["userId"].toString();
+        QJsonDocument document = QJsonDocument::fromJson(data.toUtf8());
+        QJsonObject config = document.object();
+        if (!config.empty()) {
+            sessionId = config["sessionId"].toString();
+            userId = config["userId"].toString();
+            saveConfig(sessionId, userId);
+        }
+        // ------------------Deprecated end--------------------
     }
 }
 
@@ -164,7 +169,7 @@ void CodeGeeXManager::setReferenceFiles(const QStringList &files)
     askApi.setReferenceFiles(files);
 }
 
-void CodeGeeXManager::independentAsking(const QString &prompt, QIODevice *pipe)
+void CodeGeeXManager::independentAsking(const QString &prompt, const QMultiMap<QString, QString> &history, QIODevice *pipe)
 {
     if (!isLoggedIn()) {
         emit notify(1, tr("CodeGeeX is not avaliable, please logging in"));
@@ -172,8 +177,8 @@ void CodeGeeXManager::independentAsking(const QString &prompt, QIODevice *pipe)
         return;
     }
     AskApi *api = new AskApi;
-    api->postSSEChat(kUrlSSEChat, sessionId, prompt, QSysInfo::machineUniqueId(), {}, currentTalkID);
-    QTimer::singleShot(10000, api, [=](){
+    api->postSSEChat(kUrlSSEChat, sessionId, prompt, QSysInfo::machineUniqueId(), history, currentTalkID);
+    QTimer::singleShot(10000, api, [=]() {
         if (pipe && pipe->isOpen()) {
             qWarning() << "timed out, close pipe";
             pipe->close();
@@ -221,6 +226,54 @@ void CodeGeeXManager::setMessage(const QString &prompt)
     Q_EMIT setTextToSend(prompt);
 }
 
+QString CodeGeeXManager::getChunks(const QString &queryText)
+{
+    using dpfservice::ProjectService;
+    ProjectService *prjService = dpfGetService(ProjectService);
+    auto currentProjectPath = prjService->getActiveProjectInfo().workspaceFolder();
+
+    if (currentProjectPath != "") {
+        QJsonObject result = CodeGeeXManager::instance()->query(currentProjectPath, queryText, 20);
+        QJsonArray chunks = result["Chunks"].toArray();
+        if (!chunks.isEmpty()) {
+            if (result["Completed"].toBool() == false)
+                emit askApi.notify(0, CodeGeeXManager::tr("The indexing of project %1 has not been completed, which may cause the results to be inaccurate.").arg(currentProjectPath));
+            QString context;
+            context += "\n<context>\n";
+            for (auto chunk : chunks) {
+                context += chunk.toObject()["fileName"].toString();
+                context += '\n';
+                context += chunk.toObject()["content"].toString();
+                context += "\n\n";
+            }
+            context += "\n</context>";
+            return context;
+        } else if (CodeGeeXManager::instance()->condaHasInstalled()) {
+            emit askApi.noChunksFounded();
+            return "";
+        }
+    }
+
+    return "";
+}
+
+QString CodeGeeXManager::promptPreProcessing(const QString &originText)
+{
+    QString processedText = originText;
+
+    QString message = originText;
+    if (askApi.codebaseEnabled()) {
+        QString prompt = QString("Translate this passage into English :\"%1\", with the requirements: Do not provide responses other than translation.").arg(message.remove("@CodeBase"));
+        auto englishPrompt = askApi.syncQuickAsk(kUrlSSEChat, sessionId, prompt, currentTalkID);
+        QString chunksContext = getChunks(englishPrompt);
+        if (!chunksContext.isEmpty())
+            message.append(chunksContext);
+        processedText = originText + chunksContext;
+    }
+
+    return processedText;
+}
+
 void CodeGeeXManager::sendMessage(const QString &prompt)
 {
     QString askId = "User" + QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -236,7 +289,11 @@ void CodeGeeXManager::sendMessage(const QString &prompt)
     }
     QString machineId = QSysInfo::machineUniqueId();
     QString talkId = currentTalkID;
-    askApi.postSSEChat(kUrlSSEChat, sessionId, prompt, machineId, history, talkId);
+
+    QtConcurrent::run([=, this](){
+        auto processedText = promptPreProcessing(prompt);
+        askApi.postSSEChat(kUrlSSEChat, sessionId, processedText, machineId, history, talkId);
+    });
 
     startReceiving();
 }
@@ -566,7 +623,8 @@ void CodeGeeXManager::generateRag(const QString &projectPath)
     QProcess *process = new QProcess;
     QObject::connect(QApplication::instance(), &QApplication::aboutToQuit, process, [process]() {
         process->kill();
-    }, Qt::DirectConnection);
+    },
+                     Qt::DirectConnection);
 
     QObject::connect(process, &QProcess::readyReadStandardError, process, [process]() {
         qInfo() << "Error:" << process->readAllStandardError() << "\n";
@@ -581,7 +639,7 @@ void CodeGeeXManager::generateRag(const QString &projectPath)
                          auto success = process->readAllStandardError().isEmpty();
                          emit generateDone(projectPath, !success);
                          if (!success)
-                            emit notify(2, tr("The error occurred when performing rag on project %1.").arg(projectPath));
+                             emit notify(2, tr("The error occurred when performing rag on project %1.").arg(projectPath));
                          process->deleteLater();
                      });
 
@@ -595,7 +653,7 @@ void CodeGeeXManager::generateRag(const QString &projectPath)
     if (!QFileInfo(pythonPath).exists())
         return;
     process->start(pythonPath, QStringList() << generatePyPath << modelPath << projectPath);
-    if (QThread::currentThread() != qApp->thread()) // incase thread exit before process done. cause slot function can`t work
+    if (QThread::currentThread() != qApp->thread())   // incase thread exit before process done. cause slot function can`t work
         process->waitForFinished();
 }
 
@@ -632,6 +690,11 @@ QJsonObject CodeGeeXManager::query(const QString &projectPath, const QString &qu
         obj["Completed"] = false;
     else
         obj["Completed"] = true;
+
+    if (isReferenceCodebase())
+        currentChunks = obj;
+    else
+        currentChunks = QJsonObject();
 
     return obj;
 }

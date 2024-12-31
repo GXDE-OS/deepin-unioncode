@@ -10,13 +10,13 @@
 #include <DMenu>
 #include <DDialog>
 #include <DGuiApplicationHelper>
+#include <DDesktopServices>
 
 #include <QSignalBlocker>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QClipboard>
 #include <QGuiApplication>
-#include <QDesktopServices>
 
 DWIDGET_USE_NAMESPACE
 
@@ -81,29 +81,6 @@ int TabBarPrivate::showConfirmDialog(const QString &filePath)
     return dialog.exec();
 }
 
-void TabBarPrivate::closeAllTab(const QStringList &exceptList)
-{
-    QStringList tabList;
-    for (int i = 0; i < tabBar->count(); ++i) {
-        auto file = tabBar->tabToolTip(i);
-        if (exceptList.contains(file))
-            continue;
-
-        if (isModified(i)) {
-            int ret = showConfirmDialog(file);
-            if (ret == 0)   // save
-                emit q->saveFileRequested(file);
-            else if (ret == 2 || ret == -1)   // cancel or close
-                return;
-        }
-
-        tabList << file;
-    }
-
-    for (const auto &tab : tabList)
-        q->removeTab(tab, true);
-}
-
 void TabBarPrivate::initConnection()
 {
     connect(tabBar, &DTabBar::currentChanged, this, &TabBarPrivate::onCurrentTabChanged);
@@ -149,19 +126,18 @@ void TabBarPrivate::showMenu(QPoint pos)
         q->removeTab(file);
     });
     menu.addAction(tr("Close All Files"), [=]() {
-        closeAllTab({});
+        q->closeAllTab({});
     });
     menu.addAction(tr("Close All Files Except This"), [=]() {
         auto curFile = tabBar->tabToolTip(curIndex);
         QStringList exceptList { curFile };
-        closeAllTab(exceptList);
+        q->closeAllTab(exceptList);
     });
 
     menu.addSeparator();
     menu.addAction(tr("Show Containing Folder"), [=]() {
         auto file = tabBar->tabToolTip(curIndex);
-        QFileInfo info(file);
-        QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+        DDesktopServices::showFileItem(file);
     });
 
     menu.exec(QCursor::pos());
@@ -248,8 +224,7 @@ void TabBar::removeTab(const QString &fileName, bool silent)
     if (-1 == index)
         return;
 
-    QFileInfo info(fileName);
-    if (!silent && info.exists() && d->isModified(index)) {
+    if (!silent && QFile::exists(fileName) && d->isModified(index)) {
         int ret = d->showConfirmDialog(fileName);
         if (ret == 0)   // save
             emit saveFileRequested(fileName);
@@ -261,6 +236,21 @@ void TabBar::removeTab(const QString &fileName, bool silent)
     editor.fileClosed(fileName);
     d->tabBar->removeTab(index);
     editor.switchedFile(this->currentFileName());
+}
+
+void TabBar::closeAllTab(const QStringList &exceptList, bool silent)
+{
+    QStringList tabList;
+    for (int i = 0; i < d->tabBar->count(); ++i) {
+        auto file = d->tabBar->tabToolTip(i);
+        if (exceptList.contains(file))
+            continue;
+
+        tabList << file;
+    }
+
+    for (const auto &tab : tabList)
+        removeTab(tab, silent);
 }
 
 void TabBar::setCloseButtonVisible(bool visible)

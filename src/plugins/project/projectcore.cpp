@@ -218,6 +218,9 @@ void ProjectCore::initProject(dpf::PluginServiceContext &ctx)
         if (!projectService->getActiveProjectItem) {
             projectService->getActiveProjectItem = std::bind(&ProjectTree::getActiveProjectItem, treeView);
         }
+        if (!projectService->restoreExpandState) {
+            projectService->restoreExpandState = std::bind(&ProjectTree::restoreExpandState, treeView, _1);
+        }
     }
 }
 
@@ -330,6 +333,8 @@ void ProjectCore::confirmProjectKit(const QString &path)
     // check defualt kit by supportNames
     bool hasDefault = false;
     for (auto kit : allKits) {
+        if (hasDefault)
+            break;
         auto generator = projectService->createGenerator<ProjectGenerator>(kit);
         QStringList fileNames = generator->supportFileNames();
         if (fileNames.isEmpty())
