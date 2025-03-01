@@ -151,7 +151,7 @@ struct DiagnosticCache
 {
     int startPos = 0;
     int endPos = 0;
-    QString message;
+    newlsp::Diagnostic diagnostic;
     int type;
 
 public:
@@ -182,7 +182,9 @@ public:
     void cleanDefinition(int pos);
     void setDefinitionSelectedStyle(int start, int end);
     void gotoDefinition();
-    void showDiagnosticTip(int pos, const QString &message);
+    void showDiagnosticTip(int pos, const newlsp::Diagnostic diagnostic);
+    void applyWorkspaceEdit(const newlsp::WorkspaceEdit &edit);
+    bool isHtmlContentEmpty(const QString &html);
 
 public slots:
     void handleTokenFull(const QList<lsp::Data> &tokens, const QString &filePath);

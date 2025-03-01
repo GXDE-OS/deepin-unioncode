@@ -35,6 +35,7 @@ ArrowHeaderLine::ArrowHeaderLine(QWidget *parent)
     titleLabel = new DLabel(this);
     titleLabel->installEventFilter(this);
     titleLabel->setCursor(Qt::PointingHandCursor);
+    titleLabel->setTextFormat(Qt::PlainText);
     DFontSizeManager::instance()->bind(titleLabel, DFontSizeManager::T5, QFont::Medium);
 
     connect(arrowButton, &DToolButton::clicked, this, &ArrowHeaderLine::expandChanged);
@@ -58,12 +59,25 @@ void ArrowHeaderLine::setExpand(bool value)
 
 void ArrowHeaderLine::setTitle(const QString &title)
 {
-    titleLabel->setText(title);
+    titleText = title;
+    updateTitle();
 }
 
 QString ArrowHeaderLine::title() const
 {
-    return titleLabel->text();
+    return titleText;
+}
+
+void ArrowHeaderLine::setTitleTip(const QString &tooltip)
+{
+    titleLabel->setToolTip(tooltip);
+}
+
+void ArrowHeaderLine::resizeEvent(QResizeEvent *e)
+{
+    updateTitle();
+
+    return QWidget::resizeEvent(e);
 }
 
 void ArrowHeaderLine::changeEvent(QEvent *e)
@@ -108,6 +122,13 @@ bool ArrowHeaderLine::eventFilter(QObject *obj, QEvent *e)
 void ArrowHeaderLine::reverseArrowDirection()
 {
     setExpand(!isExpanded);
+}
+
+void ArrowHeaderLine::updateTitle()
+{
+    QFontMetrics fm = titleLabel->fontMetrics();
+    auto displayText = fm.elidedText(titleText, Qt::ElideMiddle, titleLabel->width());
+    titleLabel->setText(displayText);
 }
 
 class SessionItemWidgetPrivate : public QObject
@@ -260,9 +281,9 @@ void SessionItemWidgetPrivate::removeSession()
 {
     DDialog dlg(q);
     dlg.setIcon(QIcon::fromTheme("dialog-warning"));
-    dlg.setTitle(tr("Are you sure to remove this session?"));
-    dlg.addButton(tr("Cancel", "button"));
-    dlg.addButton(tr("Remove", "button"), true, DDialog::ButtonWarning);
+    dlg.setTitle(SessionItemWidget::tr("Are you sure to remove this session?"));
+    dlg.addButton(SessionItemWidget::tr("Cancel", "button"));
+    dlg.addButton(SessionItemWidget::tr("Remove", "button"), true, DDialog::ButtonWarning);
 
     if (dlg.exec() == 1)
         sessionSrv->removeSession(sessionName);
@@ -270,8 +291,8 @@ void SessionItemWidgetPrivate::removeSession()
 
 void SessionItemWidgetPrivate::renameSession()
 {
-    QStringList actList { tr("Rename", "button"), tr("Rename and Open", "button") };
-    runInputDialog(tr("Rename Session"), actList, sessionName,
+    QStringList actList { SessionItemWidget::tr("Rename", "button"), SessionItemWidget::tr("Rename and Open", "button") };
+    runInputDialog(SessionItemWidget::tr("Rename Session"), actList, sessionName,
                    [this](const QString &newName) {
                        sessionSrv->renameSession(sessionName, newName);
                    });
@@ -279,8 +300,8 @@ void SessionItemWidgetPrivate::renameSession()
 
 void SessionItemWidgetPrivate::cloneSession()
 {
-    QStringList actList { tr("Clone", "button"), tr("Clone and Open", "button") };
-    runInputDialog(tr("New Session Name"), actList, sessionName + " (2)",
+    QStringList actList { SessionItemWidget::tr("Clone", "button"), SessionItemWidget::tr("Clone and Open", "button") };
+    runInputDialog(SessionItemWidget::tr("New Session Name"), actList, sessionName + " (2)",
                    [this](const QString &newName) {
                        sessionSrv->cloneSession(sessionName, newName);
                    });
@@ -301,31 +322,40 @@ void SessionItemWidgetPrivate::runInputDialog(const QString &title, const QStrin
     dlg.setTitle(title);
     dlg.setIcon(QIcon::fromTheme("ide"));
     DLineEdit *lineEdit = new DLineEdit(&dlg);
-    lineEdit->setPlaceholderText(tr("Please input session name"));
+    QRegExpValidator *validator = new QRegExpValidator(QRegExp("[^/\?:\\\\*]*"), lineEdit);
+    lineEdit->lineEdit()->setValidator(validator);
+    lineEdit->setPlaceholderText(SessionItemWidget::tr("Please input session name"));
+    lineEdit->setText(editText);
     connect(lineEdit, &DLineEdit::textChanged, &dlg, [&dlg](const QString &text) {
         dlg.getButton(1)->setEnabled(!text.isEmpty());
         dlg.getButton(2)->setEnabled(!text.isEmpty());
     });
     dlg.addContent(lineEdit);
+    dlg.setFocusProxy(lineEdit);
 
-    dlg.addButton(tr("Cancel", "button"));
+    dlg.addButton(SessionItemWidget::tr("Cancel", "button"));
     dlg.addButton(actList[0]);
     dlg.addButton(actList[1], true, DDialog::ButtonRecommend);
-    dlg.getButton(1)->setEnabled(false);
-    dlg.getButton(2)->setEnabled(false);
-    lineEdit->setText(editText);
+    dlg.setOnButtonClickedClose(false);
+    connect(&dlg, &DDialog::buttonClicked, this, [&](int index) {
+        if (index == 0)
+            return dlg.reject();
 
-    int ret = dlg.exec();
-    if (ret < 1)
-        return;
+        const auto name = lineEdit->text();
+        if (sessionSrv->sessionList().contains(name)) {
+            QString msg = tr("The session already exists, please re-enter.");
+            lineEdit->showAlertMessage(msg);
+            return;
+        }
 
-    const auto name = lineEdit->text();
-    if (name.isEmpty() || sessionSrv->sessionList().contains(name))
-        return;
+        handler(name);
+        if (index == 2)
+            sessionSrv->loadSession(name);
 
-    handler(name);
-    if (ret == 2)
-        sessionSrv->loadSession(name);
+        dlg.accept();
+    });
+
+    dlg.exec();
 }
 
 SessionItemWidget::SessionItemWidget(QWidget *parent)
@@ -391,6 +421,7 @@ void SessionItemWidget::updateSession()
     if (isCurrentSession && !isDefaultVirgin)
         title = tr("%1 (current session)").arg(title);
     d->headerLine->setTitle(title);
+    d->headerLine->setTitleTip(d->sessionName);
 
     const auto &sessionCfg = d->sessionSrv->sessionFile(d->sessionName);
     if (!QFile::exists(sessionCfg))

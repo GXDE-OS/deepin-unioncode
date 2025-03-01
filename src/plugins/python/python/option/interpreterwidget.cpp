@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "interpreterwidget.h"
+#include "utils/utils.h"
 #include "services/option/toolchaindata.h"
 #include "common/util/custompaths.h"
 #include "common/toolchain/toolchain.h"
@@ -16,11 +17,13 @@
 #include <DPushButton>
 #include <DFileDialog>
 #include <DDialog>
+#include <DLineEdit>
 
 #include <QtConcurrent>
 #include <QDir>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QStackedWidget>
 
 DWIDGET_USE_NAMESPACE
 class InterpreterModelPrivate
@@ -31,15 +34,12 @@ class InterpreterModelPrivate
 };
 
 InterpreterModel::InterpreterModel(QObject *parent)
-    : QAbstractTableModel(parent)
-    , d(new InterpreterModelPrivate())
+    : QAbstractTableModel(parent), d(new InterpreterModelPrivate())
 {
-
 }
 
 InterpreterModel::~InterpreterModel()
 {
-
 }
 
 int InterpreterModel::rowCount(const QModelIndex &parent) const
@@ -71,12 +71,12 @@ QVariant InterpreterModel::data(const QModelIndex &index, int role) const
     QString version = d->packageVector.at(index.row()).second;
 
     switch (index.column()) {
-        case ColumnID::kPackage:
-            return package;
-        case ColumnID::kVersion:
-            return version;
-        default:
-            return QVariant();
+    case ColumnID::kPackage:
+        return package;
+    case ColumnID::kVersion:
+        return version;
+    default:
+        return QVariant();
     }
 }
 
@@ -89,16 +89,16 @@ QVariant InterpreterModel::headerData(int section, Qt::Orientation orientation, 
         return QVariant();
 
     switch (section) {
-        case ColumnID::kPackage:
-            return tr("Package");
-        case ColumnID::kVersion:
-            return tr("Version");
-        default:
-            return QVariant();
+    case ColumnID::kPackage:
+        return tr("Package");
+    case ColumnID::kVersion:
+        return tr("Version");
+    default:
+        return QVariant();
     }
 }
 
-void InterpreterModel::setCustomData(QVector<QPair<QString, QString>>& data)
+void InterpreterModel::setCustomData(const QVector<QPair<QString, QString>> &data)
 {
     beginResetModel();
     d->packageVector = data;
@@ -110,6 +110,9 @@ class InterpreterWidgetPrivate
     friend class InterpreterWidget;
 
     DComboBox *interpreterComboBox = nullptr;
+    DLineEdit *pipSourceEdit = nullptr;
+    QStackedWidget *packagesWidget = nullptr;
+    DLabel *msgLabel = nullptr;
 
     //todo: modified it later: creating a generic component to manage the toolchain
     DPushButton *selectCustomInterpreter = nullptr;
@@ -124,8 +127,7 @@ class InterpreterWidgetPrivate
 };
 
 InterpreterWidget::InterpreterWidget(QWidget *parent)
-    : PageWidget(parent)
-    , d(new InterpreterWidgetPrivate())
+    : PageWidget(parent), d(new InterpreterWidgetPrivate())
 {
     d->toolChainData.reset(new ToolChainData());
     QString retMsg;
@@ -147,28 +149,34 @@ InterpreterWidget::~InterpreterWidget()
 
 void InterpreterWidget::setupUi()
 {
-    QVBoxLayout *vLayout = new QVBoxLayout();
-    setLayout(vLayout);
+    QGridLayout *mainLayout = new QGridLayout(this);
+    mainLayout->setColumnStretch(1, 1);
 
-    QHBoxLayout *hLayout = new QHBoxLayout();
     DLabel *label = new DLabel(tr("Python Interpreter:"));
     label->setFixedWidth(180);
     d->interpreterComboBox = new DComboBox();
     d->interpreterComboBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     QObject::connect(d->interpreterComboBox, &DComboBox::currentTextChanged,
-                     this, &InterpreterWidget::setPackageData);
+                     this, &InterpreterWidget::updatePackageData);
 
     d->selectCustomInterpreter = new DPushButton(tr("Browse"), this);
     d->removeCustomInterpreter = new DPushButton(tr("Remove"), this);
 
-    hLayout->addWidget(label);
-    hLayout->addWidget(d->interpreterComboBox);
-    hLayout->addWidget(d->selectCustomInterpreter);
-    hLayout->addWidget(d->removeCustomInterpreter);
+    mainLayout->addWidget(label, 0, 0);
+    mainLayout->addWidget(d->interpreterComboBox, 0, 1);
+    mainLayout->addWidget(d->selectCustomInterpreter, 0, 2);
+    mainLayout->addWidget(d->removeCustomInterpreter, 0, 3);
 
-    auto tableframe = new DFrame(this);
-    auto tablelayout = new QVBoxLayout(tableframe);
-    tableframe->setLayout(tablelayout);
+    auto pkgInfoFrame = new DFrame(this);
+    auto pkgLayout = new QVBoxLayout(pkgInfoFrame);
+    pkgInfoFrame->setLayout(pkgLayout);
+
+    d->packagesWidget = new QStackedWidget(this);
+    d->packagesWidget->setFixedHeight(180);
+    d->msgLabel = new DLabel(this);
+    d->msgLabel->setAlignment(Qt::AlignCenter);
+    d->msgLabel->setWordWrap(true);
+    d->msgLabel->setForegroundRole(DPalette::TextWarning);
 
     DTableView *tableView = new DTableView();
     tableView->setFrameShape(QFrame::NoFrame);
@@ -176,25 +184,29 @@ void InterpreterWidget::setupUi()
     tableView->setShowGrid(false);
     tableView->horizontalHeader()->setSectionResizeMode(DHeaderView::Stretch);
     tableView->verticalHeader()->hide();
-    tablelayout->addWidget(tableView);
 
     DHeaderView *headerView = tableView->horizontalHeader();
     headerView->setDefaultAlignment(Qt::AlignLeft);
-
     tableView->setSelectionMode(QAbstractItemView::SingleSelection);
-
     d->model = new InterpreterModel();
     tableView->setModel(d->model);
-    tableView->setFixedHeight(180);
-    vLayout->addLayout(hLayout);
-    vLayout->addWidget(tableframe);
 
-    connect(d->selectCustomInterpreter, &QPushButton::clicked, this, [=](){
+    d->packagesWidget->addWidget(tableView);
+    d->packagesWidget->addWidget(d->msgLabel);
+    pkgLayout->addWidget(d->packagesWidget);
+
+    mainLayout->addWidget(pkgInfoFrame, 1, 0, 1, 4);
+
+    d->pipSourceEdit = new DLineEdit(this);
+    mainLayout->addWidget(new DLabel(tr("PIP Source:"), this), 2, 0);
+    mainLayout->addWidget(d->pipSourceEdit, 2, 1, 1, 3);
+
+    connect(d->selectCustomInterpreter, &QPushButton::clicked, this, [=]() {
         auto path = DFileDialog::getOpenFileName(this, tr("Select Local Interpreter"), QDir::homePath(), "Python interpreters (python* python3*)");
         if (path.isEmpty())
             return;
         auto name = QFileInfo(path).fileName();
-        ToolChainData::ToolChainParam param {name, path};
+        ToolChainData::ToolChainParam param { name, path };
         int index = 0;
         while (index < d->interpreterComboBox->count()) {
             auto temp = qvariant_cast<ToolChainData::ToolChainParam>(d->interpreterComboBox->itemData(index, Qt::UserRole + 1));
@@ -214,7 +226,7 @@ void InterpreterWidget::setupUi()
         d->interpreterComboBox->setCurrentIndex(index);
         d->customInterpreters.append(param);
     });
-    connect(d->removeCustomInterpreter, &QPushButton::clicked, this, [=](){
+    connect(d->removeCustomInterpreter, &QPushButton::clicked, this, [=]() {
         DDialog dialog;
         dialog.setMessage(tr("Confirm the removal of this interpreter?"));
         dialog.setWindowTitle(tr("Remove"));
@@ -252,46 +264,58 @@ void InterpreterWidget::updateUi()
     }
 }
 
-void InterpreterWidget::setPackageData(const QString &text)
+void InterpreterWidget::updatePackageData()
 {
-    QString cmd = "pip list";
-    if (text.indexOf("python3") > -1) {
-        cmd = "pip3 list";
-    }
-    QtConcurrent::run(this, &InterpreterWidget::findPackages, cmd);
+    auto param = qvariant_cast<ToolChainData::ToolChainParam>(d->interpreterComboBox->currentData(Qt::UserRole + 1));
+    QString cmd = param.path + " -m pip list";
+
+    QtConcurrent::run(this, &InterpreterWidget::queryPackages, cmd);
 }
 
-void InterpreterWidget::findPackages(const QString &cmd)
+void InterpreterWidget::queryPackages(const QString &cmd)
 {
     QProcess process;
-    connect(&process, static_cast<void (QProcess::*)(int,QProcess::ExitStatus)>(&QProcess::finished),
+    connect(&process, static_cast<void (QProcess::*)(int, QProcess::ExitStatus)>(&QProcess::finished),
             &process, [&](int exitcode, QProcess::ExitStatus exitStatus) {
-        if (0 == exitcode && exitStatus == QProcess::ExitStatus::NormalExit) {
-            QString output = QString(process.readAllStandardOutput());
-
-            QVector<QPair<QString, QString>> dataVector;
-            QStringList list = output.split("\n");
-            foreach (QString value, list) {
-                value = value.trimmed();
-                value = value.replace(QRegExp("[\\s]+"), ",");
-                QStringList sublist = value.split(",");
-                if (sublist.count() > 1) {
-                    if (sublist.at(0).indexOf("Package") > -1
-                            || sublist.at(0).indexOf("----") > -1) {
-                        continue;
+                QueryInfo info;
+                if (0 == exitcode && exitStatus == QProcess::ExitStatus::NormalExit) {
+                    QString output = QString(process.readAllStandardOutput());
+                    QStringList list = output.split("\n");
+                    foreach (QString value, list) {
+                        value = value.trimmed();
+                        value = value.replace(QRegExp("[\\s]+"), ",");
+                        QStringList sublist = value.split(",");
+                        if (sublist.count() > 1) {
+                            if (sublist.at(0).indexOf("Package") > -1
+                                || sublist.at(0).indexOf("----") > -1) {
+                                continue;
+                            }
+                            info.packageList.append(QPair<QString, QString>(sublist.at(0).trimmed(), sublist.at(1).trimmed()));
+                        }
                     }
-                    dataVector.append(QPair<QString, QString>(sublist.at(0).trimmed(), sublist.at(1).trimmed()));
+                } else {
+                    info.errMsg = process.readAllStandardError();
                 }
-            }
-            QMutexLocker lk(&d->mutex);
-            d->model->setCustomData(dataVector);
-        } else {
-            qInfo() << "Error" << exitcode << exitStatus;
-        }
-    });
+                metaObject()->invokeMethod(this,
+                                           "applyQueryInfo",
+                                           Qt::QueuedConnection,
+                                           Q_ARG(QueryInfo, info));
+            });
 
     process.start(cmd);
     process.waitForFinished();
+}
+
+void InterpreterWidget::applyQueryInfo(const QueryInfo &info)
+{
+    if (info.errMsg.isEmpty()) {
+        d->packagesWidget->setCurrentIndex(0);
+        QMutexLocker lk(&d->mutex);
+        d->model->setCustomData(info.packageList);
+    } else {
+        d->packagesWidget->setCurrentIndex(1);
+        d->msgLabel->setText(info.errMsg);
+    }
 }
 
 bool InterpreterWidget::getControlValue(QMap<QString, QVariant> &map)
@@ -348,6 +372,7 @@ bool InterpreterWidget::dataToMap(QMap<QString, QVariant> &map)
 
     map.insert("version", currentInterpreter);
     map.insert("customInterpreters", list);
+    map.insert("pipSource", d->pipSourceEdit->text());
     return true;
 }
 
@@ -364,6 +389,13 @@ bool InterpreterWidget::mapToData(const QMap<QString, QVariant> &map)
         d->customInterpreters.append(interpreter);
     }
 
+    if (map.contains("pipSource")) {
+        const auto &pipSrc = map.value("pipSource").toString();
+        d->pipSourceEdit->setText(pipSrc);
+    } else {
+        d->pipSourceEdit->setText(Utils::defaultPIPSource());
+    }
+
     return true;
 }
 
@@ -376,4 +408,3 @@ void InterpreterWidget::getUserConfig(QMap<QString, QVariant> &map)
 {
     getControlValue(map);
 }
-

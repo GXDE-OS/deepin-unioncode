@@ -142,6 +142,16 @@ CmakeProjectGenerator::CmakeProjectGenerator()
 
         this->clearCMake(this->rootItem);
     });
+
+    connect(ProjectCmakeProxy::instance(), &ProjectCmakeProxy::projectedChanged, this, [=](const dpfservice::ProjectInfo &prjInfo) {
+        if (prjInfo.kitName() != toolKitName()) {
+            runCMake->setEnabled(false);
+            clearCMake->setEnabled(false);
+        } else {
+            runCMake->setEnabled(true);
+            clearCMake->setEnabled(true);
+        }
+    });
 }
 
 void CmakeProjectGenerator::clearCMake(QStandardItem *root)
@@ -322,7 +332,10 @@ QMenu *CmakeProjectGenerator::createItemMenu(const QStandardItem *item)
         }
     }
 
-    createBuildMenu(menu);
+    // When the right-clicked project is not the active project, compile-related shortcuts cannot be used.
+    auto service = dpfGetService(ProjectService);
+    if (dpfservice::ProjectInfo::get(root).workspaceFolder() == service->getActiveProjectInfo().workspaceFolder())
+        createBuildMenu(menu);
     QAction *action = new QAction(tr("Properties"));
     menu->addAction(action);
     dpfservice::ProjectInfo info = dpfservice::ProjectInfo::get(item);
@@ -599,11 +612,19 @@ void CmakeProjectGenerator::initCMakeParser()
 
 void CmakeProjectGenerator::createTargetsRunConfigure(const QString &workDirectory, config::RunConfigure &runConfigure)
 {
-    if (!runConfigure.targetsRunConfigure.isEmpty())
-        return;
-
     QStringList exeTargetList = TargetsManager::instance()->getExeTargetNamesList();
+
+    QStringList targetsDontUpdate; // targets is already in config and don`t update
+    foreach (auto targetInConfig, runConfigure.targetsRunConfigure) {
+        if (!exeTargetList.contains(targetInConfig.targetName))
+            runConfigure.targetsRunConfigure.removeOne(targetInConfig);
+        else
+            targetsDontUpdate.append(targetInConfig.targetName);
+    }
+
     foreach (auto targetName, exeTargetList) {
+        if (targetsDontUpdate.contains(targetName))
+            continue;
         dpfservice::Target target = TargetsManager::instance()->getTargetByName(targetName);
 
         TargetRunConfigure targetRunConfigure;
@@ -631,6 +652,7 @@ void CmakeProjectGenerator::createBuildMenu(QMenu *menu)
             menu->addAction(command->action());
         }
     };
+
     addBuildMenu("Build.Build");
     addBuildMenu("Build.Rebuild");
     addBuildMenu("Build.Clean");

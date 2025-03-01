@@ -12,6 +12,7 @@
 #include "transceiver/codeeditorreceiver.h"
 #include "codelens/codelens.h"
 #include "symbol/symbolmanager.h"
+#include "utils/resourcemanager.h"
 
 #include "services/project/projectservice.h"
 #include "services/editor/editorservice.h"
@@ -25,6 +26,7 @@
 
 #include <QApplication>
 #include <QTextDocumentFragment>
+#include <QRegularExpression>
 
 #include <bitset>
 #include <regex>
@@ -249,18 +251,18 @@ void LanguageClientHandlerPrivate::handleDiagnostics(const newlsp::PublishDiagno
             editor->SendScintilla(TextEditor::SCI_INDICSETFORE, TextEditor::INDIC_SQUIGGLE, QColor(Qt::red));
             editor->SendScintilla(TextEditor::SCI_INDICATORFILLRANGE, static_cast<ulong>(startPos), endPos - startPos);
 
-            QString message = val.message.value().c_str();
             if (val.relatedInformation.has_value()) {
-                message += "\n\n";
+                val.message += "\n\n";
                 for (const auto &info : val.relatedInformation.value()) {
                     QString infoMsg("%1:%2:%3:\nnote:%4");
                     auto path = QUrl(info.location.uri.c_str()).path();
-                    message += infoMsg.arg(path, QString::number(info.location.range.start.line + 1),
-                                           QString::number(info.location.range.start.character + 1),
-                                           info.message.c_str());
+                    val.message += infoMsg.arg(path, QString::number(info.location.range.start.line + 1),
+                                               QString::number(info.location.range.start.character + 1),
+                                               info.message.c_str());
                 }
             }
-            diagnosticCache.append({ startPos, endPos, message, dpfservice::Edit::ErrorAnnotation });
+            diagnosticCache.append({ startPos, endPos, val,
+                                     dpfservice::Edit::ErrorAnnotation });
         }
     }
 }
@@ -302,7 +304,7 @@ void LanguageClientHandlerPrivate::handleShowHoverInfo(const newlsp::Hover &hove
         showText = markupContent.value;
         if (markupContent.kind == newlsp::Enum::MarkupKind::get()->Markdown) {
             char *output = cmark_markdown_to_html(showText.c_str(), showText.size(), CMARK_OPT_DEFAULT);
-            showText = output;
+            showText = isHtmlContentEmpty(output) ? "" : output;
             free(output);
         }
     } else if (newlsp::any_contrast<newlsp::MarkedString>(hover.contents)) {
@@ -432,8 +434,8 @@ void LanguageClientHandlerPrivate::handleHoveredStart(int position)
     if (!textRange.isEmpty() && textRange.contaions(position))
         return;
 
-    auto startPos = editor->SendScintilla(TextEditor::SCI_WORDSTARTPOSITION, static_cast<ulong>(position), true);
-    auto endPos = editor->SendScintilla(TextEditor::SCI_WORDENDPOSITION, static_cast<ulong>(position), true);
+    auto startPos = editor->SendScintilla(TextEditor::SCI_WORDSTARTPOSITION, static_cast<ulong>(position), false);
+    auto endPos = editor->SendScintilla(TextEditor::SCI_WORDENDPOSITION, static_cast<ulong>(position), false);
     // hover in the empty area
     if (startPos == endPos)
         return;
@@ -445,7 +447,7 @@ void LanguageClientHandlerPrivate::handleHoveredStart(int position)
                                      return cache.contains(position);
                                  });
         if (iter != diagnosticCache.end()) {
-            showDiagnosticTip(position, iter->message);
+            showDiagnosticTip(position, iter->diagnostic);
             return;
         }
     }
@@ -581,7 +583,7 @@ void LanguageClientHandlerPrivate::gotoDefinition()
     }
 }
 
-void LanguageClientHandlerPrivate::showDiagnosticTip(int pos, const QString &message)
+void LanguageClientHandlerPrivate::showDiagnosticTip(int pos, const newlsp::Diagnostic diagnostic)
 {
     if (!editor)
         return;
@@ -593,23 +595,27 @@ void LanguageClientHandlerPrivate::showDiagnosticTip(int pos, const QString &mes
     QVBoxLayout *layout = new QVBoxLayout(widget);
     layout->setContentsMargins(5, 5, 5, 5);
 
-    QLabel *msgLabel = new QLabel(message, widget);
+    QLabel *msgLabel = new QLabel(diagnostic.message, widget);
     layout->addWidget(msgLabel);
     QString repairMsg = tr("%1: <a href='repair'>Repair with %2</a>");
 
     // create repair tool
-    auto editSrv = dpfGetService(dpfservice::EditorService);
-    auto repairTools = editSrv->getDiagnosticRepairTool();
+    auto repairTools = ResourceManager::instance()->getDiagnosticRepairTool();
     for (auto iter = repairTools.cbegin(); iter != repairTools.cend(); ++iter) {
         auto callback = iter.value();
         QLabel *repairLabel = new QLabel(widget);
-        QString msg = message.mid(0, message.indexOf('\n'));
         repairLabel->setText(repairMsg.arg(iter.key(), iter.key()));
         connect(repairLabel, &QLabel::linkActivated, this,
-                [msg, callback, this]() {
+                [diagnostic, callback, this]() {
+                    QJsonObject range {
+                        { "start", QJsonObject { { "line", diagnostic.range.start.line }, { "character", diagnostic.range.start.character } } },
+                        { "end", QJsonObject { { "line", diagnostic.range.end.line }, { "character", diagnostic.range.end.character } } }
+                    };
+
                     QJsonObject info {
                         { "fileName", editor->getFile() },
-                        { "msg", msg }
+                        { "msg", diagnostic.message.mid(0, diagnostic.message.indexOf('\n')) },
+                        { "range", range }
                     };
 
                     QJsonDocument doc(info);
@@ -621,7 +627,52 @@ void LanguageClientHandlerPrivate::showDiagnosticTip(int pos, const QString &mes
         layout->addWidget(repairLabel);
     }
 
+    auto codeActions = diagnostic.codeActions.value_or(QList<newlsp::CodeAction>());
+    for (const auto &act : codeActions) {
+        if (!act.edit.has_value())
+            continue;
+
+        QLabel *quickfixLabel = new QLabel(widget);
+        QString msg = "<a href='quickfix'>%1</a>";
+        quickfixLabel->setText(msg.arg(act.title));
+        connect(quickfixLabel, &QLabel::linkActivated, this,
+                [this, act]() {
+                    applyWorkspaceEdit(act.edit.value());
+                    ToolTip::hideImmediately();
+                });
+
+        layout->addWidget(new DHorizontalLine(widget));
+        layout->addWidget(quickfixLabel);
+    }
+
     editor->showTips(pos, widget);
+}
+
+void LanguageClientHandlerPrivate::applyWorkspaceEdit(const newlsp::WorkspaceEdit &edit)
+{
+    const auto &changes = edit.changes.value_or(newlsp::WorkspaceEdit::Changes());
+    for (auto it = changes.cbegin(); it != changes.cend(); ++it) {
+        QString filePath = QUrl(it->first.c_str()).toLocalFile();
+        if (filePath != editor->getFile())
+            continue;
+
+        for (const auto &change : it->second) {
+            const auto &range = change.range;
+            editor->replaceRange(range.start.line, range.start.character,
+                                 range.end.line, range.end.character,
+                                 change.newText.c_str(), true);
+        }
+    }
+}
+
+bool LanguageClientHandlerPrivate::isHtmlContentEmpty(const QString &html)
+{
+    QString stripped = html;
+    stripped.replace(QRegularExpression("<[^>]*>"), "");
+
+    stripped.replace(QRegularExpression("&nbsp;", QRegularExpression::CaseInsensitiveOption), " ");
+    stripped.replace(QRegularExpression("\\s+"), " ");
+    return stripped.trimmed().isEmpty();
 }
 
 void LanguageClientHandlerPrivate::handleSwitchHeaderSource(const QString &file)

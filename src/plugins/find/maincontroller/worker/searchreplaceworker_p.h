@@ -8,6 +8,7 @@
 #include "searchreplaceworker.h"
 
 #include "services/editor/editorservice.h"
+#include <optional>
 
 class SearchReplaceWorkerPrivate : public QObject
 {
@@ -17,7 +18,7 @@ public:
     {
         QString program;
         QStringList arguments;
-        QString channelData;
+        std::optional<QString> channelData;
         QString keyword;
         SearchFlags flags;
     };

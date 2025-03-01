@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "detailwidget.h"
-#include "addmodeldialog.h"
+#include "modelconfigdialog.h"
 #include "aimanager.h"
 
 #include <DTableView>
+#include <DComboBox>
 #include <DFrame>
 #include <DListView>
 #include <DToolButton>
@@ -20,6 +21,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QDebug>
+#include <QLabel>
 
 DWIDGET_USE_NAMESPACE
 
@@ -96,13 +98,15 @@ class DetailWidgetPrivate
     friend class DetailWidget;
     DListView *modelsView = nullptr;
     LLMModels *LLMModel = nullptr;
-    AddModelDialog *addModelDialog = nullptr;
+    ModelConfigDialog *addModelDialog = nullptr;
+    DComboBox *cbCompletedLLM = nullptr;
 };
 
 DetailWidget::DetailWidget(QWidget *parent)
     : PageWidget(parent), d(new DetailWidgetPrivate())
 {
     setupUi();
+    addDefaultLLM();
 }
 
 DetailWidget::~DetailWidget()
@@ -117,6 +121,15 @@ void DetailWidget::setupUi()
     setFixedHeight(300);
     QVBoxLayout *vLayout = new QVBoxLayout(this);
     vLayout->setContentsMargins(0, 0, 0, 0);
+
+    QHBoxLayout *completedLLMLayout = new QHBoxLayout;
+    completedLLMLayout->setContentsMargins(10, 0, 10, 0);
+    d->cbCompletedLLM = new DComboBox(this);
+    d->cbCompletedLLM->addItem(tr("Disabled"), QVariant());
+    QLabel *lbCompletedLLM = new QLabel(tr("Auto Complete LLM:"), this);
+    completedLLMLayout->addWidget(lbCompletedLLM);
+    completedLLMLayout->addWidget(d->cbCompletedLLM);
+    vLayout->addLayout(completedLLMLayout);
 
     auto listframe = new DFrame(this);
     auto listlayout = new QVBoxLayout(listframe);
@@ -162,10 +175,13 @@ void DetailWidget::setupUi()
     vLayout->addLayout(buttonLayout);
 
     connect(buttonAdd, &DToolButton::clicked, this, [=](){
-        auto dialog = new AddModelDialog(this);
+        auto dialog = new ModelConfigDialog(this);
         auto code = dialog->exec();
         if (code == QDialog::Accepted) {
-            d->LLMModel->appendLLM(dialog->getNewLLmInfo());
+            auto newLLM = dialog->getLLmInfo();
+            d->LLMModel->appendLLM(newLLM);
+            if (d->cbCompletedLLM->findData(newLLM.toVariant()) != -1)
+                d->cbCompletedLLM->addItem(newLLM.modelName, newLLM.toVariant());
         }
         dialog->deleteLater();
     });
@@ -176,8 +192,53 @@ void DetailWidget::setupUi()
         if (!index.isValid())
             return;
         auto llmInfo = d->LLMModel->allLLMs().at(index.row());
+        if (llmInfo.type == LLMType::ZHIPU_CODEGEEX) { // default codegeex can not remove
+            DDialog dialog;
+            dialog.setMessage(tr("You can't delete default CodeGeeX`s LLM!"));
+            dialog.setWindowTitle(tr("Delete Warining"));
+            dialog.setIcon(QIcon::fromTheme("dialog-warning"));
+            dialog.insertButton(0, tr("Ok"));
+            dialog.exec();
+            return;
+        }
         d->LLMModel->removeLLM(llmInfo);
+        if (d->cbCompletedLLM->findData(llmInfo.toVariant()) != -1)
+            d->cbCompletedLLM->removeItem(d->cbCompletedLLM->findData(llmInfo.toVariant()));
     });
+    connect(d->modelsView, &DListView::doubleClicked, this, [this](const QModelIndex &index){
+        if (!index.isValid())
+            return;
+
+        auto dialog = new ModelConfigDialog(this);
+        auto llmInfo = d->LLMModel->allLLMs().at(index.row());
+        dialog->setLLmInfo(llmInfo);
+        auto code = dialog->exec();
+        if (code == QDialog::Accepted) {
+            auto changedLLMInfo = dialog->getLLmInfo();
+            bool isSame = llmInfo == changedLLMInfo;
+            if (!isSame) {
+                // remove original one
+                d->LLMModel->removeLLM(llmInfo);
+                if (d->cbCompletedLLM->findData(llmInfo.toVariant()) != -1)
+                    d->cbCompletedLLM->removeItem(d->cbCompletedLLM->findData(llmInfo.toVariant()));
+
+                // add changed one
+                d->LLMModel->appendLLM(changedLLMInfo);
+                if (d->cbCompletedLLM->findData(changedLLMInfo.toVariant()) == -1)
+                    d->cbCompletedLLM->addItem(changedLLMInfo.modelName, changedLLMInfo.toVariant());
+            }
+        }
+        dialog->deleteLater();
+    });
+}
+
+void DetailWidget::addDefaultLLM()
+{
+    auto LLMs = AiManager::instance()->getDefaultLLM();
+    for (auto llm : LLMs) {
+        d->LLMModel->appendLLM(llm);
+        d->cbCompletedLLM->addItem(llm.modelName, llm.toVariant());
+    }
 }
 
 bool DetailWidget::getControlValue(QMap<QString, QVariant> &map)
@@ -186,14 +247,27 @@ bool DetailWidget::getControlValue(QMap<QString, QVariant> &map)
     for (auto llmInfo : d->LLMModel->allLLMs()) {
         LLMs.append(llmInfo.toVariant());
     }
+
     map.insert(kCATEGORY_CUSTOMMODELS, LLMs);
+    map.insert(kCATEGORY_AUTO_COMPLETE, d->cbCompletedLLM->currentData());
     return true;
 }
 
 void DetailWidget::setControlValue(const QMap<QString, QVariant> &map)
 {
     for (auto mapData : map.value(kCATEGORY_CUSTOMMODELS).toList()) {
-        d->LLMModel->appendLLM(LLMInfo::fromVariantMap(mapData.toMap()));
+        auto llmInfo = LLMInfo::fromVariantMap(mapData.toMap());
+        if (llmInfo.type == LLMType::ZHIPU_CODEGEEX) // default model is already exist
+            continue;
+        d->LLMModel->appendLLM(llmInfo);
+        if (d->cbCompletedLLM->findData(llmInfo.toVariant()) == -1)
+            d->cbCompletedLLM->addItem(llmInfo.modelName, llmInfo.toVariant());
+    }
+    if (!map.value(kCATEGORY_AUTO_COMPLETE).isValid()) {
+        d->cbCompletedLLM->setCurrentIndex(0);
+    } else {
+        auto selectedCompleteLLM = LLMInfo::fromVariantMap(map.value(kCATEGORY_AUTO_COMPLETE).toMap());
+        d->cbCompletedLLM->setCurrentText(selectedCompleteLLM.modelName);
     }
 }
 
