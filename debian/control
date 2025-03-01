@@ -10,7 +10,7 @@ Build-Depends:
  qttools5-dev,
  qttools5-dev-tools,
  qtwebengine5-dev[!loong64],
- lxqt-build-tools (>= 0.6.0~),
+ lxqt-build-tools-qt5 | lxqt-build-tools (>= 0.6.0~),
  libssl-dev,
  llvm (>=1:7~),
  llvm-dev (>=1:7~),
