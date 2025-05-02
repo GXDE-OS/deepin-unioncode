@@ -132,6 +132,9 @@ void AskPageWidget::onLLMChanged(int index)
         inputEdit->switchNetworkBtnVisible(false);
     else
         inputEdit->switchNetworkBtnVisible(true);
+
+    onStopGenerate();
+
     OptionManager::getInstance()->setValue(optionCategory, selectedLLM, llmInfo.toVariant());
 }
 
@@ -196,11 +199,13 @@ void AskPageWidget::initInputWidget()
     historyBtn->hide(); // todo: Display after completion of functionality
     btnLayout->addWidget(historyBtn);
 
+#if 0 // history not ready
     createNewBtn = new DToolButton(this);
     createNewBtn->setIcon(QIcon::fromTheme("uc_chat_new"));
     createNewBtn->setFixedSize(26, 26);
     createNewBtn->setToolTip(tr("create new session"));
     btnLayout->addWidget(createNewBtn);
+#endif
     btnLayout->addStretch(1);
 
     modelCb = new QComboBox(this);
@@ -232,7 +237,7 @@ void AskPageWidget::initConnection()
     connect(inputEdit, &InputEditWidget::pressedEnter, this, &AskPageWidget::slotMessageSend);
     connect(deleteBtn, &DToolButton::clicked, this, &AskPageWidget::onDeleteBtnClicked);
     connect(historyBtn, &DToolButton::clicked, this, &AskPageWidget::onHistoryBtnClicked);
-    connect(createNewBtn, &DToolButton::clicked, this, &AskPageWidget::onCreateNewBtnClicked);
+//    connect(createNewBtn, &DToolButton::clicked, this, &AskPageWidget::onCreateNewBtnClicked);
     connect(modelCb, qOverload<int>(&QComboBox::currentIndexChanged), this, &AskPageWidget::onLLMChanged);
     connect(ChatCallProxy::instance(), &ChatCallProxy::LLMsChanged, this, &AskPageWidget::updateModelCb);
     connect(inputEdit->edit(), &DTextEdit::textChanged, this, [this]() {
@@ -282,14 +287,15 @@ void AskPageWidget::enterAnswerState()
 
     progressCalcNum = 0;
     inputEdit->edit()->clear();
-    inputEdit->setEnabled(false);
+    inputEdit->disableSendBtn();
+    inputEdit->setAnswering(true);
 
     if (deleteBtn)
         deleteBtn->setEnabled(false);
     if (historyBtn)
         historyBtn->setEnabled(false);
-    if (createNewBtn)
-        createNewBtn->setEnabled(false);
+//    if (createNewBtn)
+//        createNewBtn->setEnabled(false);
 
     stopWidget->show();
     waitForAnswer();
@@ -298,15 +304,16 @@ void AskPageWidget::enterAnswerState()
 void AskPageWidget::enterInputState()
 {
     stopWidget->hide();
-    inputEdit->setEnabled(true);
+    inputEdit->enableSendBtn();
+    inputEdit->setAnswering(false);
     inputEdit->edit()->setPlaceholderText(placeHolderText);
 
     if (deleteBtn)
         deleteBtn->setEnabled(true);
     if (historyBtn)
         historyBtn->setEnabled(true);
-    if (createNewBtn)
-        createNewBtn->setEnabled(true);
+//    if (createNewBtn)
+//        createNewBtn->setEnabled(true);
 }
 
 void AskPageWidget::waitForAnswer()
@@ -352,6 +359,9 @@ void AskPageWidget::updateModelCb()
 
 void AskPageWidget::onStopGenerate()
 {
+    if (!waitComponets)
+        return;
+
     ChatManager::instance()->stopReceiving();
     if (!msgComponents.values().contains(waitComponets)) {
         QString stopId = "Stop:" + QString::number(QDateTime::currentMSecsSinceEpoch());
@@ -373,7 +383,7 @@ void AskPageWidget::resetBtns()
         return;
 
     deleteBtn->setEnabled(!isIntroPageState());
-    createNewBtn->setVisible(!isIntroPageState());
+//    createNewBtn->setVisible(!isIntroPageState());
 //    historyBtn->setVisible(true);
 }
 
