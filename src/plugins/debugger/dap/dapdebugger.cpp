@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2023 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -89,7 +89,6 @@ class DebuggerPrivate
     DEBUG::DebugSession *currentSession { nullptr };
 
     dap::integer threadId = 0;
-    QList<dap::integer> threads;
     StackFrameData currentValidFrame;
 
     /**
@@ -213,6 +212,19 @@ void DAPDebugger::startDebug()
     d->isRemote = false;
     if (d->currentSession == d->remoteSession)
         d->currentSession = d->localSession;
+
+    QMetaObject::invokeMethod(this, [=](){
+        auto appOutPutPane = AppOutputPane::instance();
+        appOutPutPane->createApplicationPane("debugPane", "debugTarget");
+        appOutPutPane->setStopHandler("debugPane", [=]() {
+            abortDebug();
+            d->outputPane = appOutPutPane->defaultPane();
+        });
+        d->outputPane = appOutPutPane->getOutputPaneById("debugPane");
+
+        appOutPutPane->bindToolBarToPane(debugToolBarName, d->outputPane);
+        AppOutputPane::instance()->setProcessFinished("debugPane"); // only show log untill debuggee launching
+    });
 
     auto &ctx = dpfInstance.serviceContext();
     LanguageService *service = ctx.service<LanguageService>(LanguageService::name());
@@ -736,17 +748,6 @@ void DAPDebugger::registerDapHandlers()
         Q_UNUSED(event)
         qInfo() << "\n--> recv : "
                 << "ThreadEvent";
-
-        if (event.reason == "started")
-            d->threads.append(event.threadId);
-
-        if (event.reason == "exited") {
-            d->threads.removeOne(event.threadId);
-            if (d->threads.isEmpty()) {
-                printOutput(tr("\nThe debugee has Terminated.\n"), OutputPane::OutputFormat::NormalMessage);
-                updateRunState(kNoRun);
-            }
-        }
     });
 
     // The event indicates that the target has produced some output.
@@ -1361,7 +1362,6 @@ void DAPDebugger::exitDebug()
 
     d->threadId = 0;
 
-    d->threads.clear();
     d->threadSelector->clear();
 }
 
@@ -1613,16 +1613,7 @@ void DAPDebugger::launchSession(int port, const QMap<QString, QVariant> &param, 
     } else {
         debugService->getModel()->clear();
         debugService->getModel()->addSession(d->currentSession);
-
-        auto appOutPutPane = AppOutputPane::instance();
-        appOutPutPane->createApplicationPane("debugPane", "debugTarget");
-        appOutPutPane->setStopHandler("debugPane", [=]() {
-            abortDebug();
-            d->outputPane = appOutPutPane->defaultPane();
-        });
-        d->outputPane = appOutPutPane->getOutputPaneById("debugPane");
-
-        appOutPutPane->bindToolBarToPane(debugToolBarName, d->outputPane);
+        AppOutputPane::instance()->setProcessStarted("debugPane");
     }
 }
 

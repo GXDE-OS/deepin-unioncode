@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2024 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -523,26 +523,32 @@ void LanguageClientHandlerPrivate::handleShowContextMenu(QMenu *menu)
     if (!editor)
         return;
 
+    bool isClientValid = getClient() ? getClient()->isValid() : false;
     auto actionList = menu->actions();
     for (auto act : actionList) {
         if (act->text() == tr("Refactor")) {
             QMenu *subMenu = new QMenu(menu);
             subMenu->addAction(tr("Rename Symbol Under Cursor"), q, &LanguageClientHandler::renameActionTriggered);
             act->setMenu(subMenu);
+            act->setEnabled(isClientValid);
             break;
         }
     }
 
     auto act = menu->addAction(tr("Switch Header/Source"), q, std::bind(&LanguageClientHandler::switchHeaderSource, q, editor->getFile()));
+    act->setEnabled(isClientValid);
     menu->insertAction(actionList.first(), act);
 
     act = menu->addAction(tr("Follow Symbol Under Cursor"), q, &LanguageClientHandler::followSymbolUnderCursor);
+    act->setEnabled(isClientValid);
     menu->insertAction(actionList.first(), act);
 
     act = menu->addAction(tr("Find Usages"), q, &LanguageClientHandler::findUsagesActionTriggered);
+    act->setEnabled(isClientValid);
     menu->insertAction(actionList.first(), act);
 
     act = menu->addAction(tr("Format Selection"), q, &LanguageClientHandler::formatSelections);
+    act->setEnabled(isClientValid);
     menu->insertAction(actionList.first(), act);
     menu->insertSeparator(actionList.first());
 }

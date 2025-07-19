@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2024 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -265,6 +265,15 @@ void AppOutputPane::createApplicationPane(const QString &id, const QString &prog
     d->tabChosser->setCurrentIndex(d->tabChosser->count() - 1);
 
     emit paneCreated(id);
+}
+
+void AppOutputPane::setProcessStarted(const QString &id)
+{
+    if (!d->appIsRunning.contains(id))
+        return;
+    d->appIsRunning[id] = true;
+    if (d->stackWidget->currentWidget() == d->appPane[id])
+        d->closeProcessBtn->setEnabled(true);
 }
 
 void AppOutputPane::setProcessFinished(const QString &id)

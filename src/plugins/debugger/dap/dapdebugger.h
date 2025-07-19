@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2023 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -132,7 +132,7 @@ private:
     void launchSession(int port, const QMap<QString, QVariant> &param, const QString &kitName);
     void disassemble(const QString &address);
     void handleAssemble(const QString &content);
-    
+
     QString transformRemotePath(const QString &remotePath);
     
     dpfservice::ProjectInfo getActiveProjectInfo() const;

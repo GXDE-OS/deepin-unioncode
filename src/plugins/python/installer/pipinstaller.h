@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2024 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -25,6 +25,7 @@ public:
     void install(const QString &python, const InstallInfo &info);
 
 private:
+    bool checkPipExists(const QString &python);
     dpfservice::TerminalService *termSrv { nullptr };
 };
 

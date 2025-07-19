@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+# SPDX-FileCopyrightText: 2023 - 2025 UnionTech Software Technology Co., Ltd.
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 PLATFORM="$HOME/.config/unioncode/configures/platform"
@@ -17,7 +17,7 @@ NETNS_ID="netns${CID}"
 BR_ID="br${CID}"
 BR_IP="172.16.0.1/16"
 BR_GW="172.16.0.1"
-MIRROR="https://pools.uniontech.com/deepin"
+MIRROR="input your mirror address"
 
 sudo ip netns add ${NETNS_ID}
 sudo ip link add ${BR_ID} type bridge

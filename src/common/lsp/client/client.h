@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2023 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2023 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -23,6 +23,7 @@ public:
     virtual ~Client();
 
     lsp::SemanticTokensProvider initSecTokensProvider();
+    bool isValid() const;
 
 public slots:
     // textDocument/semanticTokens/full/delta

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2024 UnionTech Software Technology Co., Ltd.
+// SPDX-FileCopyrightText: 2024 - 2025 UnionTech Software Technology Co., Ltd.
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -32,6 +32,7 @@ public:
                                  OutputPane::OutputFormat format,
                                  OutputPane::AppendMode mode);
 
+    void setProcessStarted(const QString &id);
     void setProcessFinished(const QString &id);
 
     using StopHandler = std::function<void()>;
