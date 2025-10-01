@@ -82,7 +82,7 @@ endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -Wall -Wl,--as-need -fPIE")
 
-find_package(Qt6 COMPONENTS Core QUIET)
+find_package(Qt5 COMPONENTS Core QUIET)
 if (Qt6_FOUND)
     set(QT_VERSION_MAJOR 6)
 else()
