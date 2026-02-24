@@ -4,32 +4,23 @@ install(DIRECTORY templates/
 install(DIRECTORY models/
     DESTINATION "${SOURCES_INSTALL_RPEFIX}/models")
 
-find_package(Qt${QT_VERSION_MAJOR} COMPONENTS LinguistTools)
+find_package(Qt${QT_VERSION_MAJOR} COMPONENTS LinguistTools REQUIRED)
 
-# install translation.
-if (CMAKE_BUILD_TYPE STREQUAL "Release")
-    file(GLOB TS_FILES "translations/*.ts")
-    foreach(TS_FILE IN LISTS TS_FILES)
-        message(STATUS "process ts file: ${TS_FILE}")
-        find_program(LUPDATE_COMMAND NAMES lupdate lupdate-Qt${QT_VERSION_MAJOR} lupdate-qt4 lupdate-pro)
-        if (NOT LUPDATE_COMMAND)
-            message(FATAL_ERROR "lupdate command not found")
-        endif()
-        execute_process(COMMAND ${LUPDATE_COMMAND} "${CMAKE_SOURCE_DIR}/src/" -ts -no-obsolete
-            "${TS_FILE}"
-            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-            OUTPUT_VARIABLE OUTPUT
-            ERROR_VARIABLE ERROR
-            RESULT_VARIABLE RES)
-        if (RES)
-            message(FATAL_ERROR "process ts file result : ${RES}, with error: ${ERROR}")
-        endif()
-        message(STATUS "${OUTPUT}")
-        execute_process(COMMAND lrelease ${TS_FILE})
-    endforeach()
+# Set up translation files
+set(TS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/translations")
+file(GLOB TS_FILES "${TS_DIR}/*.ts")
+set_source_files_properties(${TS_FILES} PROPERTIES OUTPUT_LOCATION "${TS_DIR}")
+
+if (QT_VERSION_MAJOR EQUAL 6)
+    qt6_add_translation(QM_FILES ${TS_FILES})
+else()
+    qt5_add_translation(QM_FILES ${TS_FILES})
 endif()
 
-file(GLOB QM_FILES "translations/*.qm")
+add_custom_target(${PROJECT_NAME}_translations ALL DEPENDS ${QM_FILES})
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_translations)
+
+# install translation.
 install(FILES ${QM_FILES} DESTINATION "${SOURCES_INSTALL_RPEFIX}/translations")
 
 # install tools
@@ -42,8 +33,13 @@ install(FILES ${TOOL_FILES} DESTINATION ${TOOL_INSTALL_PATH})
 # install configure files.
 file(GLOB SUPPORTFILES "${CMAKE_CURRENT_SOURCE_DIR}/configures/*.support")
 file(GLOB DESKTOPFILES "${CMAKE_CURRENT_SOURCE_DIR}/configures/*.desktop")
-file(GLOB ICON "${CMAKE_CURRENT_SOURCE_DIR}/configures/*.svg")
+
+# Icon installation according to freedesktop.org standards
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/configures/ide.svg"
+        DESTINATION "/usr/share/icons/hicolor/scalable/apps")
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/configures/ide_32px.svg"
+        DESTINATION "/usr/share/icons/hicolor/32x32/apps"
+        RENAME "ide.svg")
 
 install(FILES ${SUPPORTFILES} DESTINATION "${SOURCES_INSTALL_RPEFIX}/configures")
 install(FILES ${DESKTOPFILES} DESTINATION "/usr/share/applications")
-install(FILES ${ICON} DESTINATION "${SOURCES_INSTALL_RPEFIX}/configures/icons")
