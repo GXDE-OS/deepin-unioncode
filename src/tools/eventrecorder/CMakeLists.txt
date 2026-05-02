@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 2.8)
+cmake_minimum_required (VERSION 3.10)
 project (emd C CXX ASM)
 set (strace2_VERSION_MAJOR 1)
 set (strace2_VERSION_MINOR 0)
